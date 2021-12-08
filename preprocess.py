@@ -10,13 +10,17 @@ from io import BytesIO
 import math
 from concurrent.futures import ThreadPoolExecutor
 
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MultiLabelBinarizer
+
+
 "reference to turn images to bytes: https://github.com/gskielian/JPG-PNG-to-MNIST-NN-Format/blob/master/convert-images-to-mnist-format.py"
 
 MAX_HEIGHT = 480
 MAX_WIDTH = 640
 
 def pad(arr):
-	if arr.shape[0]>MAX_HEIGHT:
+	if arr.shape[0] > MAX_HEIGHT:
 		print('too high',arr.shape[0])
 	if arr.shape[1]>MAX_WIDTH:
 		print('too wide',arr.shape[1])
@@ -34,32 +38,46 @@ def pad(arr):
 	else:
 		padding_X = (padding_X_after,padding_X_after)
 	#print(padding_Y,padding_X)
-	arr = np.pad(arr,[padding_Y,padding_X,(0,0)],mode='constant')
+	arr = np.pad(arr, [padding_Y, padding_X, (0, 0)], mode='constant')
 	return arr
 
 def download_and_pad(url):
 	try:
 		b = requests.get(url)
+		image = Image.open(BytesIO(b.content))
+		image = tf.keras.preprocessing.image.img_to_array(image)
+		pad_arr = pad(image)
+		pad_arr = np.reshape(pad_arr, [640, 480])
+
+		#use max pool
+
+		"""b = requests.get(url)
 		img =Image.open(BytesIO(b.content))
 		arr = np.asarray(img)
-		pad_arr = pad(arr)
+		pad_arr = pad(arr)"""
+
 	except:
-		pad_arr = np.zeros((640,480))
-	return pad_arr
+		pad_arr = np.zeros((640, 480))
+	pad_arr_int = pad_arr.astype(np.int)
+	return pad_arr_int
 
 def download_images_from_links(image_array, npy_file_path):
 	print("starting downloading")
 	with ThreadPoolExecutor(max_workers=14) as executor:
-		big_gen = executor.map(download_and_pad, image_array) #generator
+		big_gen = executor.map(download_and_pad, image_array)
 
 	#pad images
 	big_list = list(big_gen)
+
+	"bug here: 'MemoryError: Unable to allocate array with shape (10942, 640, 480) and data type float64' "
 	big_array = np.array(big_list)
-	np.save(npy_file_path,big_array)
+
+	print("got here")
+	np.save(npy_file_path, big_array)
 
 	return None
 
-def early_processing(cat_path,image_path,cat_out_path):
+def early_processing(cat_path,image_path,cat_out_path, img_out_path):
 	""" only run ONCE """
 	""" rearrange inputs and labels, download images from links """
 
@@ -80,7 +98,7 @@ def early_processing(cat_path,image_path,cat_out_path):
 	with open(image_path, newline='') as f2:
 		reader = csv.reader(f2)
 		for row in reader:
-			image2id[row[1]]=row[0]
+			image2id[row[1]] = row[0]
 
 		id2image = dict([(value,key)for key,value in image2id.items()])
 
@@ -88,7 +106,7 @@ def early_processing(cat_path,image_path,cat_out_path):
 	image2cat = []
 	for id in id2image:
 		try:
-			image2cat.append([id2image[id],id2cat[id]])
+			image2cat.append([id2image[id], id2cat[id]])
 		except:
 			pass
 
@@ -97,12 +115,16 @@ def early_processing(cat_path,image_path,cat_out_path):
 	image_array = altogether[0]
 	cat_array = altogether[1]
 
-	download_images_from_links(image_array,'d:/DeepLearning/FinalProj/data/inputs.npy')
+	download_images_from_links(image_array, img_out_path)
+#	download_images_from_links(image_array, 'd:/DeepLearning/FinalProj/data/inputs.npy')
+
 	np.save(cat_out_path,cat_array)
 
 	return None
 
-#early_processing('d:/DeepLearning/FinalProj/data/categories.csv','d:/DeepLearning/FinalProj/data/images.csv','d:/DeepLearning/FinalProj/data/labels.npy')
+
+early_processing('d:/DeepLearning/FinalProj/data/categories.csv','d:/DeepLearning/FinalProj/data/images.csv','d:/DeepLearning/FinalProj/data/labels.npy','d:/DeepLearning/FinalProj/data/inputs.npy')
+
 
 def print_unique(cat_array):
 	unique_cats = []
@@ -164,23 +186,51 @@ def sort_labels(cat_array):
 
 			if element in ['Northern Manhattan Parks', 'Fort Tryon Park Trust', "It's My Park", 'Poe Park Visitor Center', 'Shape Up New York', 'Freshkills Park', 'Freshkills Featured Events', 'Urban Park Rangers', 'City Parks Foundation', 'Reforestation Stewardship', 'Forest Park Trust', 'City Parks Foundation Adults', 'Partnerships for Parks Training and Grant Deadlines', 'My Summer House NYC', 'Community Parks Initiative', 'Anchor Parks']:
 				element = 16
-			this_lst.append(element)
+
+			if element not in this_lst:
+				"NOTE: THIS WAS ADDED SO WE MAY DO ONE HOT VECTORS"
+				this_lst.append(element)
+
 		this_cat.append(this_lst)
 	return np.array(this_cat)
+""
 
 def get_data(image_path,cat_path):
 
-	cat_array = np.load(cat_path,allow_pickle=True)
-	img_array = np.load(image_path,allow_pickle=True)
+	cat_array = np.load(cat_path, allow_pickle=True)
+	img_array = np.load(image_path, allow_pickle=True)
 
 	this_cat = sort_labels(cat_array)
+	"then change this to be a 16 sized one hot vector"
+	"reference: https://www.pyimagesearch.com/2018/05/07/multi-label-classification-with-keras/"
 
+	# turn labels into one hot vectors
+	mlb = MultiLabelBinarizer()
+	mlb.fit(this_cat)
+	labels = np.arange(1, 17)
+	mlb.classes_(labels)
+	mlb.transform(this_cat)
 	# normalization
-	# reshaped_inputs = subset_inputs.reshape(subset_inputs.shape[0],3,32,32).transpose(0,2,3,1).astype("float")
-	# normalized_inputs = reshaped_inputs / 255
 
-	return this_cat, img_array
+	img_array = tf.reshape(img_array, [10942, 640, 480]).astype(np.float32)
+	img_array = img_array / 255
 
-get_data( "#./data/inputs.npy", "data/labels.npy")
+	"""	test_size = np.math.floor(.3 * 10942)
+	train_size = 10942 - test_size
+	
+	"""
+
+
+	(train_img, test_img, train_lab, test_lab) = train_test_split(img_array, this_cat, test_size=0.2, random_state=42)
+
+	""""
+	new_features = mlb.fit_transform(features)
+	"""
+
+
+	#return this_cat[0 : train_size], img_array[0 : train_size], this_cat[train_size : 10942], img_array[train_size : 10942]
+	return train_img, test_img, train_lab, test_lab
+
+#get_data( "#./data/inputs.npy", "#./data/labels.npy")
 
 #get_data('d:/DeepLearning/FinalProj/data/inputs.npy','d:/DeepLearning/FinalProj/data/labels.npy')
