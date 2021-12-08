@@ -210,10 +210,6 @@ def get_data(image_path,cat_path):
 	labels = np.arange(1, 17)
 	mlb.classes_(labels)
 	mlb.transform(this_cat)
-	# normalization
-
-	img_array = tf.reshape(img_array, [10942, 640, 480]).astype(np.float32)
-	img_array = img_array / 255
 
 	"""	test_size = np.math.floor(.3 * 10942)
 	train_size = 10942 - test_size
